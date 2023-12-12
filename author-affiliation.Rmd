@@ -1,0 +1,138 @@
+---
+title: "Handling author and affiliation with a RMarkdown file."
+output: 
+  word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("tidyverse")
+library("flextable")
+
+```
+
+## Assuming we have a dataframe with the following author information (assuming the author order is the same as it should be on the paper):
+
+- name
+- affiliation 1, 2, 3, ...
+- address of the affiliation 1, 2, 3, ...
+
+## Each affiliation and address should be in separate columns.
+
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+
+df <- data.frame(
+  Name = c("Georg J. A. Hähn", "Max Mustermann"),
+  `Affiliation1` = c("MLU", "iDiv"),
+  `Address1` = c("Halle (Saale), Germany", "Leipzig, Germany"),
+  `Affiliation2` = c("iDiv", "Musteruni"),
+  `Address2` = c("Leipzig, Germany", "Musterstadt, Musterland"),
+  `Affiliation3` = c("Uni Bologna", NA),
+  `Address3` = c("Bologna, Italy", NA)
+)
+
+
+flextable(df[,1:4]) %>% 
+  theme_zebra() %>% 
+  autofit()
+
+```
+
+## Now we combine the affiliation with the address:
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+df1 <- df %>% 
+  mutate(
+  Affiliation1 = ifelse(!is.na(`Affiliation1`), paste0(`Affiliation1`, ", ", `Address1`), NA),
+  Affiliation2 = ifelse(!is.na(`Affiliation2`), paste0(`Affiliation2`, ", ", `Address2`), NA),
+  Affiliation3 = ifelse(!is.na(`Affiliation3`), paste0(`Affiliation3`, ", ", `Address3`), NA)
+  ) %>% 
+  dplyr::select(Affiliation1, Affiliation2, Affiliation3, Name)
+
+flextable(df1[,1:4]) %>% 
+  theme_zebra() %>% 
+  autofit()
+```
+
+## Here, we bring the affiliation to one column and keep the original order of the authors.
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+# Get affiliations while keeping the original author order
+affil <- gather(df1, key = "Level", value = "Affiliation", -c(Name)) %>% 
+  filter(stringr::str_detect(Level, "Affil")) %>% 
+  arrange(match(Name, df1$Name))
+
+flextable(affil) %>% 
+  theme_zebra() %>% 
+  autofit()
+```
+
+## The affiliations are ordered, therefore we can simply add the numbers 1 to n(affiliations)
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+affil_order <- data.frame(Affiliation = na.omit(unique(affil$Affiliation)),
+                          Number = 1:length(na.omit(unique(affil$Affiliation))))
+
+flextable(affil_order) %>% 
+  theme_zebra() %>% 
+  autofit()
+```
+
+## Link the number to the affiliation in the author list, and combine all numbers for each author in one column:
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+authors_numbers = affil %>% 
+  right_join(affil_order %>% na.omit(), by = "Affiliation") %>% 
+  group_by(Name) %>% 
+  summarize(Affil = paste(Number, collapse = ",")) %>% 
+  arrange(match(Name, df1$Name))
+
+flextable(authors_numbers) %>% 
+  theme_zebra() %>% 
+  autofit()
+```
+
+## For the authors we can simply create a long string with all names and the numbers as superscript. For the first author we add the * as we want to indicate that he is the first author of the paper.
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+authorlist <- ""
+
+for (i in 1:length(authors_numbers$Name)) {
+
+  str <- paste0(authors_numbers[i, "Name"], "^", ifelse(i == 1, paste0(authors_numbers[i, "Affil"], ",\\*"), 
+                                                        authors_numbers[i, "Affil"]), 
+                       "^", ifelse(i == length(authors_numbers$Name), "",  ", "), sep = "")
+  authorlist <- paste0(authorlist, str, sep = "")
+}
+
+```
+`r authorlist`
+
+## For the affiliation list we do the same as for the authors but we sperate them with a linebreak instead of a comma.
+
+```{r, warning=FALSE, message=FALSE, echo=TRUE}
+affillist <- "\\* Corresponding author   \n   \n"
+
+for (i in 1:length(affil_order$Affiliation)) {
+  a <- paste0("^", affil_order[i, "Number"], "^", " ", affil_order[i, "Affiliation"], sep = "\n")
+  affillist <- paste0(affillist, a)
+}
+
+```
+
+## To print the affiliation list we need to slightly modify the `cat` function:
+```{r, results='asis', echo=TRUE}
+mycat <- function(text){
+  cat(gsub(pattern = "\n", replacement = "  \n", x = text))
+}
+mycat(affillist)
+```
+
+
+## Done. The final result:
+
+`r authorlist`
+
+```{r, results='asis', echo=FALSE}
+mycat <- function(text){
+  cat(gsub(pattern = "\n", replacement = "  \n", x = text))
+}
+mycat(affillist)
+```
+
